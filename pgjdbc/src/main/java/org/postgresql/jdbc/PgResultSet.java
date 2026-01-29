@@ -2404,7 +2404,6 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
   protected void closeInternally() throws SQLException {
     // release resources held (memory for tuples)
     rows = null;
-    thisRow = null;
     rowBuffer = null;
     JdbcBlackHole.close(deleteStatement);
     deleteStatement = null;
@@ -2585,7 +2584,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
 
     // Check if the column is actually a boolean type for better accuracy
     int col = columnIndex - 1;
-    boolean isBooleanColumn = fields[col].getOID() == Oid.BOOL;
+    boolean isBooleanColumn = currentRow.fields()[col].getOID() == Oid.BOOL;
 
     // Only check for boolean values if it's actually a boolean column to avoid false positives
     if (isBooleanColumn && trimmed.length() == 1) {

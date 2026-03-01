@@ -92,7 +92,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
 import java.util.StringTokenizer;
 import java.util.TimeZone;
 import java.util.UUID;
@@ -266,7 +265,10 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
       case Types.BLOB:
         return getBlob(columnIndex);
       case Types.STRUCT:
-        return getStruct(columnIndex, getPGType(columnIndex));
+        if (connection.isStructReception()) {
+          return getStruct(columnIndex, getPGType(columnIndex));
+        }
+        break;
       default:
         String type = getPGType(columnIndex);
 
@@ -277,7 +279,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
 
         if ("uuid".equals(type)) {
           if (isBinary(columnIndex)) {
-            Tuple thisRow = currentRow.row().orElse(null);
+            Tuple thisRow = currentRow.row();
             castNonNull(thisRow);
             return getUUID(castNonNull(thisRow.get(columnIndex - 1)));
           }
@@ -314,7 +316,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
         }
         if ("hstore".equals(type)) {
           if (isBinary(columnIndex)) {
-            Tuple thisRow = currentRow.row().orElse(null);
+            Tuple thisRow = currentRow.row();
             castNonNull(thisRow);
             return HStoreConverter.fromBytes(castNonNull(thisRow.get(columnIndex - 1)),
                 connection.getEncoding());
@@ -325,6 +327,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
         // Caller determines what to do (JDBC3 overrides in this case)
         return null;
     }
+    return null;
   }
 
   @Pure
@@ -660,7 +663,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
     int oid = currentRow.fields()[col].getOID();
 
     if (isBinary(i)) {
-      Tuple thisRow = currentRow.row().orElse(null);
+      Tuple thisRow = currentRow.row();
       byte [] row = castNonNull(thisRow).get(col);
       if (oid == Oid.TIMESTAMPTZ || oid == Oid.TIMESTAMP) {
         boolean hasTimeZone = oid == Oid.TIMESTAMPTZ;
@@ -1043,7 +1046,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
 
     rows = castNonNull(this.rows, "rows");
     // Now prepend our one saved row and move to it.
-    Tuple thisRow = currentRow.row().orElse(null);
+    Tuple thisRow = currentRow.row();
     rows.add(0, castNonNull(thisRow));
     rowIndex = 0;
 
@@ -1314,7 +1317,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
     try (ResourceLock ignore = lock.obtain()) {
       // inserts want an empty array while updates want a copy of the current row
       if (copyCurrentRow) {
-        Tuple thisRow = currentRow.row().orElse(null);
+        Tuple thisRow = currentRow.row();
         rowBuffer = castNonNull(thisRow, "thisRow").updateableCopy();
       } else {
         rowBuffer = new Tuple(currentRow.fields().length);
@@ -1598,7 +1601,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
 
       if (rs.next()) {
         // we know that the row is updatable as it was tested above.
-        Tuple row = rs.currentRow.row().orElse(null);
+        Tuple row = rs.currentRow.row();
         if (row == null) {
           rowBuffer = null;
         } else {
@@ -2473,7 +2476,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
           return ts.toStringOffsetDateTime(value);
       }
       // internalGetObject requires thisRow to be non-null
-      Tuple thisRow = currentRow.row().orElse(null);
+      Tuple thisRow = currentRow.row();
       castNonNull(thisRow, "thisRow");
       Object obj = internalGetObject(columnIndex, field);
       if (obj == null) {
@@ -3455,7 +3458,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
   @EnsuresNonNull("currentRow")
   protected byte @Nullable [] getRawValue(@Positive int column) throws SQLException {
     checkClosed();
-    Tuple row = currentRow.row().orElse(null);
+    Tuple row = currentRow.row();
     if (row == null) {
       throw new PSQLException(
           GT.tr("ResultSet not positioned properly, perhaps you need to call next."),
@@ -4122,7 +4125,7 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
     } else if (PGobject.class.isAssignableFrom(type)) {
       Object object;
       if (isBinary(columnIndex)) {
-        Tuple thisRow = currentRow.row().orElse(null);
+        Tuple thisRow = currentRow.row();
         byte[] byteValue = castNonNull(thisRow, "thisRow").get(columnIndex - 1);
         object = connection.getObject(getPGType(columnIndex), null, byteValue);
       } else {
@@ -4520,69 +4523,50 @@ public class PgResultSet implements ResultSet, PGRefCursorResultSet {
    * It is useful if we want the ResultSet to switch parsing a new row on top of the current one.
    */
   protected static final class CurrentRow {
-    private final ResourceLock lock = new ResourceLock();
+    private Field[] fields;
+    private @Nullable Tuple row;
+    private @Nullable ArrayDeque<State> stack;
 
-    private final ArrayDeque<Field[]> fieldsStack = new ArrayDeque<>();
-    private final ArrayDeque<Tuple> rowStack = new ArrayDeque<>();
+    private static final class State {
+      final Field[] fields;
+      final Tuple row;
 
-    CurrentRow(final Field[] fields) {
-      this.fieldsStack.push(fields);
-    }
-
-    /**
-     * Switch to a new row.<br>
-     * <b>Note: make sure to call {@link #consume()} after you are done.</b>
-     * @param fields  the fields of the new row
-     * @param row     the data of new row
-     */
-    CurrentRowLock switchTo(final Field[] fields, final Tuple row) {
-      // need to lock here to ensure that threads that might be consuming the result set don't read from this new row
-      lock.obtain();
-      this.fieldsStack.push(fields);
-      this.rowStack.push(row);
-      return new CurrentRowLock(this);
-    }
-
-    /**
-     * Consumes the row at the top of the stack if more than one is present.
-     */
-    void consume() {
-      // consuming stops if we are at the first row
-      if (fieldsStack.size() > 1 && rowStack.size() > 1) {
-        fieldsStack.pop();
-        rowStack.pop();
-
-        // consumed, so unlock
-        lock.unlock();
+      State(Field[] fields, Tuple row) {
+        this.fields = fields;
+        this.row = row;
       }
+    }
+
+    CurrentRow(Field[] fields) {
+      this.fields = fields;
     }
 
     Field[] fields() {
-      try (ResourceLock l = lock.obtain()) {
-        return castNonNull(fieldsStack.peek());
-      }
+      return fields;
+    }
+
+    @Nullable Tuple row() {
+      return row;
     }
 
     void setRow(@Nullable Tuple row) {
-      try (ResourceLock l = lock.obtain()) {
-        if (!rowStack.isEmpty()) {
-          rowStack.pop();
-        }
-        // null will just remove the row
-        if (row == null) {
-          return;
-        }
-        rowStack.push(row);
-      }
+      this.row = row;
     }
 
-    Optional<Tuple> row() {
-      try (ResourceLock l = lock.obtain()) {
-        if (rowStack.isEmpty()) {
-          return Optional.empty();
-        }
-        return Optional.of(rowStack.peek());
+    CurrentRowLock switchTo(Field[] newFields, Tuple newRow) {
+      if (stack == null) {
+        stack = new ArrayDeque<>();
       }
+      stack.push(new State(fields, castNonNull(row)));
+      this.fields = newFields;
+      this.row = newRow;
+      return new CurrentRowLock(this);
+    }
+
+    private void consume() {
+      State state = castNonNull(stack).pop();
+      this.fields = state.fields;
+      this.row = state.row;
     }
 
     // Util class that can be used to consume current row in try-with-resources.

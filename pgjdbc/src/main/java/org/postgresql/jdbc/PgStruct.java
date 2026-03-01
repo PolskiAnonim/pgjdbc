@@ -20,9 +20,6 @@ import java.util.Map;
 import java.util.regex.Pattern;
 
 public class PgStruct implements Struct {
-  // if at least one of \ " ( ) (white space) , is present in the string, we need to quote the attribute value
-  private static final Pattern NEEDS_ESCAPE_PATTERN = Pattern.compile("[\\\"()\\s,]");
-
   private final String sqlTypeName;
   private final PgStructDescriptor descriptor;
   private final @Nullable Object[] attributes;
@@ -82,27 +79,62 @@ public class PgStruct implements Struct {
       return attribute;
     }
 
-    String value = String.valueOf(attribute);
-    switch (javaType.getName()) {
-      case "java.lang.Integer":
-        return PgResultSet.toInt(value);
-      case "java.lang.Long":
-        return PgResultSet.toLong(value);
-      case "java.lang.Double":
-        return PgResultSet.toDouble(value);
-      case "java.lang.BigDecimal":
-        return PgResultSet.toBigDecimal(value);
-      case "java.lang.String":
-        return value;
-      case "java.lang.Boolean":
-        return BooleanTypeUtil.castToBoolean(value);
-      case "java.util.Date":
-        return timestampUtils.toTimestamp(null, value);
-      default:
-        throw new SQLFeatureNotSupportedException(
-            GT.tr("Unsupported conversion to {1}.", javaType.getName()),
-            PSQLState.NOT_IMPLEMENTED.getState());
+    if (javaType == String.class) {
+      return String.valueOf(attribute);
     }
+
+    if (javaType == Integer.class || javaType == int.class) {
+      if (attribute instanceof Number) {
+        return ((Number) attribute).intValue();
+      }
+      return PgResultSet.toInt(String.valueOf(attribute));
+    }
+
+    if (javaType == Long.class || javaType == long.class) {
+      if (attribute instanceof Number) {
+        return ((Number) attribute).longValue();
+      }
+      return PgResultSet.toLong(String.valueOf(attribute));
+    }
+
+    if (javaType == Double.class || javaType == double.class) {
+      if (attribute instanceof Number) {
+        return ((Number) attribute).doubleValue();
+      }
+      return PgResultSet.toDouble(String.valueOf(attribute));
+    }
+
+    if (javaType == java.math.BigDecimal.class) {
+      if (attribute instanceof Number) {
+        return new java.math.BigDecimal(attribute.toString());
+      }
+      return PgResultSet.toBigDecimal(String.valueOf(attribute));
+    }
+
+    if (javaType == Boolean.class || javaType == boolean.class) {
+      if (attribute instanceof Boolean) {
+        return attribute;
+      }
+      return BooleanTypeUtil.castToBoolean(String.valueOf(attribute));
+    }
+
+    if (javaType == java.util.Date.class) {
+      if (attribute instanceof java.util.Date) {
+        return attribute;
+      }
+      return timestampUtils.toTimestamp(null, String.valueOf(attribute));
+    }
+
+    if (javaType == java.sql.Timestamp.class) {
+      if (attribute instanceof java.sql.Timestamp) {
+        return attribute;
+      }
+      return timestampUtils.toTimestamp(null, String.valueOf(attribute));
+    }
+
+    throw new SQLFeatureNotSupportedException(
+        GT.tr("Unsupported conversion to {0} for type {1}.", javaType.getName(), attribute.getClass().getName()),
+        PSQLState.NOT_IMPLEMENTED.getState());
   }
 
   @Override
@@ -133,8 +165,7 @@ public class PgStruct implements Struct {
         s = attribute.toString();
       }
 
-      boolean needsEscape = NEEDS_ESCAPE_PATTERN.matcher(s).find();
-      if (needsEscape) {
+      if (needsEscape(s)) {
         escapeStructAttribute(sb, s);
       } else {
         sb.append(s);
@@ -147,6 +178,21 @@ public class PgStruct implements Struct {
     sb.append(")");
     fieldString = sb.toString();
     return fieldString;
+  }
+
+  // if at least one of \ " ( ) (white space) , is present in the string, we need to quote the attribute value
+
+  private static boolean needsEscape(String s) {
+    if (s.isEmpty()) {
+      return true;
+    }
+    for (int i = 0; i < s.length(); i++) {
+      char c = s.charAt(i);
+      if (c == '"' || c == '\\' || c == '(' || c == ')' || c == ',' || Character.isWhitespace(c)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public static void escapeStructAttribute(StringBuilder b, String s) {

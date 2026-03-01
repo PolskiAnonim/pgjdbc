@@ -244,4 +244,10 @@ public interface BaseConnection extends PGConnection, Connection {
    * @return true if boolean to numeric conversion is enabled
    */
   boolean getConvertBooleanToNumeric();
+
+  /**
+   * Returns true if composite types should be returned as {@link java.sql.Struct}.
+   * @return true if struct reception is enabled
+   */
+  boolean isStructReception();
 }

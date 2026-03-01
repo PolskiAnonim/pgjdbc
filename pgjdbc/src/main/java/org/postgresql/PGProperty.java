@@ -828,6 +828,17 @@ public enum PGProperty {
       "Specifies the length to return for types of unknown length"),
 
   /**
+   * Specifies how the driver should return composite types.
+   * If {@code true}, the driver will return a {@link java.sql.Struct} object.
+   * If {@code false}, the driver will return a {@link org.postgresql.util.PGobject} object.
+   * Default value is {@code false}.
+   */
+  STRUCT_RECEPTION(
+      "structReception",
+      "false",
+      "Specifies how the driver should return composite types. If true, the driver will return a java.sql.Struct object. If false, the driver will return a org.postgresql.util.PGobject object."),
+
+  /**
    * Username to connect to the database as.
    */
   USER(

@@ -27,6 +27,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Struct;
+import java.util.Properties;
 
 class CompositeTest {
 
@@ -41,7 +42,9 @@ class CompositeTest {
 
   @BeforeEach
   void setUp() throws Exception {
-    conn = TestUtil.openDB();
+    Properties props = new Properties();
+    props.setProperty("structReception", "true");
+    conn = TestUtil.openDB(props);
     TestUtil.createSchema(conn, "\"Composites\"");
     TestUtil.createCompositeType(conn, "simplecompositetest", "i int, d decimal, u uuid");
     TestUtil.createCompositeType(conn, "nestedcompositetest", "t text, s simplecompositetest");

@@ -175,6 +175,7 @@ public class PgConnection implements BaseConnection {
   private final TypeInfo typeCache;
 
   private boolean disableColumnSanitiser;
+  private boolean structReception;
 
   // Default statement prepare threshold.
   protected int prepareThreshold;
@@ -377,6 +378,7 @@ public class PgConnection implements BaseConnection {
     this.logServerErrorDetail = PGProperty.LOG_SERVER_ERROR_DETAIL.getBoolean(info);
     this.disableColumnSanitiser = PGProperty.DISABLE_COLUMN_SANITISER.getBoolean(info);
     this.convertBooleanToNumeric = PGProperty.CONVERT_BOOLEAN_TO_NUMERIC.getBoolean(info);
+    this.structReception = PGProperty.STRUCT_RECEPTION.getBoolean(info);
 
     if (haveMinimumServerVersion(ServerVersion.v8_3)) {
       typeCache.addCoreType("uuid", Oid.UUID, Types.OTHER, "java.util.UUID", Oid.UUID_ARRAY);
@@ -1720,6 +1722,11 @@ public class PgConnection implements BaseConnection {
   @Override
   public boolean getConvertBooleanToNumeric() {
     return convertBooleanToNumeric;
+  }
+
+  @Override
+  public boolean isStructReception() {
+    return structReception;
   }
 
   @Override

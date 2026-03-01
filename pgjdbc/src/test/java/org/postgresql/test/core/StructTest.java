@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.postgresql.PGProperty;
 import org.postgresql.test.TestUtil;
-import org.postgresql.test.annotations.DisabledIfServerVersionBelow;
+import org.postgresql.test.annotations.DisabledForServerVersionRange;
 import org.postgresql.test.jdbc2.BaseTest4;
 
 import org.junit.jupiter.api.AfterAll;
@@ -32,7 +32,7 @@ import java.sql.Timestamp;
 import java.util.HashMap;
 import java.util.Properties;
 
-@DisabledIfServerVersionBelow("10.0")
+@DisabledForServerVersionRange(lt = "10.0")
 public class StructTest extends BaseTest4 {
 
   @BeforeAll
@@ -96,6 +96,7 @@ public class StructTest extends BaseTest4 {
     binaryMode = BinaryMode.FORCE;
     PGProperty.PREPARE_THRESHOLD.set(props, -1);
     PGProperty.BINARY_TRANSFER_ENABLE.set(props, "item_2d");
+    PGProperty.STRUCT_RECEPTION.set(props, "true");
   }
 
   @Test

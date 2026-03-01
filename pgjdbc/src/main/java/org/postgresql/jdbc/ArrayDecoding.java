@@ -697,7 +697,7 @@ final class ArrayDecoding {
     int type = connection.getTypeInfo().getSQLType(typeName);
     if (type == Types.CHAR || type == Types.VARCHAR) {
       return (FieldDecoder<A>) STRING_ARRAY;
-    } else if (type == Types.STRUCT) {
+    } else if (type == Types.STRUCT && connection.isStructReception()) {
       return (FieldDecoder<A>) new StructTypeDecoder(typeName);
     }
     return (FieldDecoder<A>) new MappedTypeObjectDecoder(typeName);
